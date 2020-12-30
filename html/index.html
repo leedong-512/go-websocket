@@ -12,26 +12,27 @@
                 d.innerHTML = message;
                 output.appendChild(d);
             };
-            document.getElementById("open").onclick = function(evt) {
-                if (ws) {
-                    return false;
+            ws = new WebSocket("ws://127.0.0.1:7777/ws");
+            ws.onopen = function(evt) {
+                print("OPEN");
+            }
+            ws.onclose = function(evt) {
+                print("CLOSE");
+                ws = null;
+            }
+            ws.onmessage = function(evt) {
+                var data = JSON.parse(evt.data)
+                if (data.Type === 2) {
+                    console.log("connecting...")
                 }
-                ws = new WebSocket("ws://127.0.0.1:7777/ws");
-                ws.onopen = function(evt) {
-                    print("OPEN");
+                if (data.Type !== 2) {
+                    print("RESPONSE: " + data.MsgData);
                 }
-                ws.onclose = function(evt) {
-                    print("CLOSE");
-                    ws = null;
-                }
-                ws.onmessage = function(evt) {
-                    print("RESPONSE: " + evt.data);
-                }
-                ws.onerror = function(evt) {
-                    print("ERROR: " + evt.data);
-                }
-                return false;
-            };
+
+            }
+            ws.onerror = function(evt) {
+                print("ERROR: " + evt.data);
+            }
             document.getElementById("send").onclick = function(evt) {
                 if (!ws) {
                     return false;
@@ -55,7 +56,6 @@
     <tr><td valign="top" width="50%">
             <p>点击“打开”创建与服务器的连接，点击“发送”向服务器发送消息，点击“关闭”关闭连接。您可以更改消息并发送多次。</p>
             <form>
-                <button id="open">打开</button>
                 <button id="close">关闭</button>
                 <input id="input" type="text" value="Hello world!">
                 <button id="send">发送</button>

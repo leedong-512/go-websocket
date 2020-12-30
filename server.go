@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
@@ -114,13 +115,22 @@ error:
 closed:
 }
 
+type Data struct {
+	Type int
+	MsgData string
+}
+
 // 发送存活心跳
 func (wsConn *wsConnection) procLoop() {
 	// 启动一个gouroutine发送心跳
 	go func() {
+		data := &Data{}
+		data.MsgData = "hello"
+		data.Type = 2
+		json_data,_ := json.Marshal(data)
 		for {
 			time.Sleep(2 * time.Second)
-			if err := wsConn.wsWrite(websocket.TextMessage, []byte("heartbeat from server")); err != nil {
+			if err := wsConn.wsWrite(websocket.TextMessage, json_data); err != nil {
 				fmt.Println("heartbeat fail")
 				wsConn.wsClose()
 				break
@@ -135,8 +145,11 @@ func (wsConn *wsConnection) procLoop() {
 			fmt.Println("read fail")
 			break
 		}
-		fmt.Println(string(msg.data))
-		err = wsConn.wsWrite(msg.messageType, msg.data)
+		data := Data{}
+		data.MsgData = string(msg.data)
+		data.Type = msg.messageType
+		jsonData, _ := json.Marshal(data)
+		err = wsConn.wsWrite(websocket.TextMessage, jsonData)
 		if err != nil {
 			fmt.Println("write fail")
 			break
@@ -159,6 +172,7 @@ func wsHandler(resp http.ResponseWriter, req *http.Request) {
 		isClosed:  false,
 	}
 
+	//wsConn.wsWrite()
 	// 处理器
 	go wsConn.procLoop()
 	// 读协程
