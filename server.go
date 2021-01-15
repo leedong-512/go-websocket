@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"html/template"
@@ -26,6 +27,11 @@ type wsMessage struct {
 	data        []byte
 }
 
+type Data struct {
+	Type int
+	MsgData string
+}
+
 // 客户端连接
 type wsConnection struct {
 	wsSocket *websocket.Conn // 底层websocket
@@ -36,7 +42,7 @@ type wsConnection struct {
 	isClosed  bool       // 管道是否已经关闭
 	closeChan chan byte  // 关闭通知
 }
-
+var ch = make(chan *wsMessage, 1000)
 // 写入消息
 func (wsConn *wsConnection) wsWrite(messageType int, data []byte) error {
 	select {
@@ -75,6 +81,8 @@ func (wsConn *wsConnection) wsReadLoop() {
 	for {
 		// 读一个message
 		msgType, data, err := wsConn.wsSocket.ReadMessage()
+		fmt.Println(msgType)
+		fmt.Println(string(data))
 		if err != nil {
 			goto error
 		}
@@ -115,11 +123,6 @@ error:
 closed:
 }
 
-type Data struct {
-	Type int
-	MsgData string
-}
-
 // 发送存活心跳
 func (wsConn *wsConnection) procLoop() {
 	// 启动一个gouroutine发送心跳
@@ -149,12 +152,33 @@ func (wsConn *wsConnection) procLoop() {
 		data.MsgData = string(msg.data)
 		data.Type = msg.messageType
 		jsonData, _ := json.Marshal(data)
+		fmt.Println("----111----")
+		fmt.Println(string(jsonData))
 		err = wsConn.wsWrite(websocket.TextMessage, jsonData)
 		if err != nil {
 			fmt.Println("write fail")
 			break
 		}
 	}
+}
+
+//php 推送数据
+func (wsConn *wsConnection) push(ch chan *wsMessage) {
+	for {
+		select {
+		// 取一个应答
+		case msg := <- ch:
+			// 写给websocket
+			if err := wsConn.wsSocket.WriteMessage(msg.messageType, msg.data); err != nil {
+				goto error
+			}
+		case <-wsConn.closeChan:
+			goto closed
+		}
+	}
+error:
+	wsConn.wsClose()
+closed:
 }
 
 func wsHandler(resp http.ResponseWriter, req *http.Request) {
@@ -179,11 +203,34 @@ func wsHandler(resp http.ResponseWriter, req *http.Request) {
 	go wsConn.wsReadLoop()
 	// 写协程
 	go wsConn.wsWriteLoop()
+	//获取PHP推送数据
+	go wsConn.push(ch)
+}
+
+
+func phpClient(resp http.ResponseWriter, req *http.Request)  {
+	req.ParseForm()
+	fmt.Fprintln(resp,req.Form)
+	/*
+		按照请求参数名获取参数值
+		根据源码,FormValue(key)=req.Form[key]
+	*/
+	name:=req.FormValue("name")
+	age:=req.FormValue("age")
+	fmt.Fprintln(resp,name,age)
+	data := Data{}
+	data.MsgData = "test"
+	data.Type = 1
+	jsonData, _ := json.Marshal(data)
+	ch <- &wsMessage{messageType: websocket.TextMessage, data:jsonData}
+	fmt.Println(string(jsonData))
 }
 
 func main() {
+	var port string
+	flag.StringVar(&port, "p", "2021", "server port")
+	flag.Parse()
 	http.HandleFunc("/ws", wsHandler)
-
 	//test client
 	http.HandleFunc("/index", func(w http.ResponseWriter, r *http.Request) {
 		t, err := template.ParseFiles("./html/index.html")
@@ -193,5 +240,8 @@ func main() {
 		}
 		_ = t.Execute(w, nil)
 	})
-	_ = http.ListenAndServe(":7777", nil)
+	//php client
+	http.HandleFunc("/php", phpClient)
+	fmt.Println(":" + port)
+	_ = http.ListenAndServe(":"+port, nil)
 }
